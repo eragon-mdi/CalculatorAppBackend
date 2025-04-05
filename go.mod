@@ -4,7 +4,10 @@ go 1.22.2
 
 require (
 	github.com/google/uuid v1.6.0
+	github.com/labstack/echo v3.3.10+incompatible
 	github.com/labstack/echo/v4 v4.13.3
+	gorm.io/driver/postgres v1.5.11
+	gorm.io/gorm v1.25.12
 )
 
 require (
@@ -25,6 +28,4 @@ require (
 	golang.org/x/sys v0.28.0 // indirect
 	golang.org/x/text v0.21.0 // indirect
 	golang.org/x/time v0.8.0 // indirect
-	gorm.io/driver/postgres v1.5.11 // indirect
-	gorm.io/gorm v1.25.12 // indirect
 )
