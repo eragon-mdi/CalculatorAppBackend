@@ -4,20 +4,27 @@ import (
 	// "encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"strconv"
 
-	"github.com/google/uuid"
 	echo "github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 
-	// "github.com/google/uuid"
 	"net/http"
+
+	"github.com/google/uuid"
+
+	// .
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
 )
 
-type errorMap map[string]string
+var db *gorm.DB
+
+type tinyErrJson map[string]string
 
 type Calculation struct {
-	ID         string  `json:"id"`
+	ID         string  `json:"id" gorm:"primaryKey"`
 	Expression string  `json:"expression"`
 	Result     float64 `json:"result"`
 }
@@ -26,13 +33,33 @@ type CalculationRequest struct {
 	Expression string `json:"expression"`
 }
 
-// .
-// история выражений
-var calculationsHistory = []Calculation{}
+// подкючаемся к БД
+func initDB() {
+	dsn := "host=localhost user=postgres password=pass dbname=postgres port=5432 sslmode=disable" // data source name
+	var err error
+	db, err = gorm.Open(postgres.Open(dsn), &gorm.Config{}) // пустой конфиг
+
+	if err != nil {
+		log.Fatal("Не смог подключиться к БД: ", err)
+	}
+
+	// автомиграция
+	if err := db.AutoMigrate(&Calculation{}); err != nil {
+		log.Fatal("Поломался на миграции: ", err)
+	}
+}
 
 // .
 // ГЕТ историю
 func getCalculations(c echo.Context) error {
+	var calculationsHistory []Calculation
+
+	if res := db.Find(&calculationsHistory); res.Error != nil {
+		c.JSON(http.StatusInternalServerError, tinyErrJson{"error": "Invalid db request"})
+	}
+
+	fmt.Println("\n", calculationsHistory, "\n")
+
 	return c.JSON(http.StatusOK, calculationsHistory)
 }
 
@@ -43,7 +70,7 @@ func postCalculation(c echo.Context) error {
 	var req CalculationRequest
 	// декодируем
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalud request"})
+		return c.JSON(http.StatusBadRequest, tinyErrJson{"error": "Invalud request"})
 	}
 
 	// новый элемент для сохранения в память
@@ -54,11 +81,15 @@ func postCalculation(c echo.Context) error {
 
 	// считаем выражение
 	if err := calculatExpression(&newCalc); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid expression"})
+		return c.JSON(http.StatusBadRequest, tinyErrJson{"error": "Invalid expression"})
 	}
 
 	// добавляем в историю
-	calculationsHistory = append(calculationsHistory, newCalc)
+	// calculationsHistory = append(calculationsHistory, newCalc)
+	if res := db.Create(&newCalc); res.Error != nil {
+		return c.JSON(http.StatusInternalServerError, tinyErrJson{"error": "Couldn't create new calculation in db"})
+	}
+
 	// возвращаем ответ
 	return c.JSON(http.StatusCreated, newCalc)
 }
@@ -74,29 +105,26 @@ func patchCalculation(c echo.Context) error {
 	var req CalculationRequest
 	// .
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request"})
+		return c.JSON(http.StatusBadRequest, tinyErrJson{"error": "Invalid request"})
 	}
 
-	// ищем старую запись в слайсе
-	for i, oldCalc := range calculationsHistory {
-		// когда нашли старую запись
-		if oldCalc.ID == id {
-			// обновляем поле с выражением в старой записи
-			var buf string // если нужно будет вернуть старое значение
-			buf, calculationsHistory[i].Expression = calculationsHistory[i].Expression, req.Expression
-
-			// заново считаем старую запись
-			if err := calculatExpression(&calculationsHistory[i]); err != nil {
-				calculationsHistory[i].Expression = buf
-				return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid expression"})
-			}
-
-			// возвращаем успешный ответ
-			return c.JSON(http.StatusOK, calculationsHistory[i])
-		}
+	// новая запись
+	var newCalc = Calculation{
+		Expression: req.Expression,
 	}
-	// если старая запись не была найдена
-	return c.JSON(http.StatusBadRequest, errorMap{"error": "Invalid id"})
+	// считаем результат нового выражения
+	if err := calculatExpression(&newCalc); err != nil {
+		return c.JSON(http.StatusBadRequest, tinyErrJson{"error": "Invalid expression"})
+	}
+
+	// обновляем запись по айди
+	res := db.Model(&Calculation{}).Where("id = ?", id).Updates(newCalc)
+	if res.Error != nil {
+		return c.JSON(http.StatusInternalServerError, tinyErrJson{"error": "Couldn't update the record"})
+	}
+
+	// .
+	return c.JSON(http.StatusOK, newCalc)
 }
 
 // .
@@ -106,26 +134,26 @@ func delCalculation(c echo.Context) error {
 	id := c.Param("id")
 
 	var req CalculationRequest
-
+	// биндим
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, errorMap{"error": "Invalid request"})
+		return c.JSON(http.StatusBadRequest, tinyErrJson{"error": "Invalid request"})
 	}
 
-	for i, calculation := range calculationsHistory {
-		if calculation.ID == id {
-			calculationsHistory = append(calculationsHistory[:i], calculationsHistory[i+1:]...)
-
-			return c.NoContent(http.StatusNoContent)
-		}
+	// удаялем по айди
+	if res := db.Delete(&Calculation{}, "id = ?", id); res.Error != nil {
+		return c.JSON(http.StatusInternalServerError, tinyErrJson{"error": "Couldnt delete from bd or bad id"})
 	}
-	// если старая запись не была найдена
-	return c.JSON(http.StatusBadRequest, errorMap{"error": "Invalid id"})
+
+	// .
+	return c.NoContent(http.StatusNoContent)
 }
 
 // .
 // .
 // .
 func main() {
+
+	initDB()
 
 	e := echo.New()
 
@@ -138,8 +166,6 @@ func main() {
 	e.DELETE("/calculations/:id", delCalculation)
 
 	e.Start("localhost:8080")
-
-	// json.Marshal()
 }
 
 // .
