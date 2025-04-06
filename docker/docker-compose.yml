@@ -1,0 +1,35 @@
+# version: '3.8'
+
+services:
+  backend:
+    build: 
+      context: ..
+      dockerfile: docker/Dockerfile.backend
+    restart:
+      always
+    ports:
+      - ${APP_PORT}:8080
+    volumes:
+      - ../ :/usr/src/app
+    env_file:
+      - .env
+    depends_on:
+      - db
+  db:
+    image: postgres
+    restart: always
+    shm_size: 128mb
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    volumes:
+    - ${PATH_TO_DB_DATA}:/var/lib/postgresql/data
+
+#  adminer:
+#    image: adminer
+#    restart: always
+#    ports:
+#      - ${ADMINER_PORT}:8080
+#    depends_on:
+#      - db

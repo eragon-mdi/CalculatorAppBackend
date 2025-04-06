@@ -33,5 +33,5 @@ func main() {
 	e.PATCH("/calculations/:id", calcHandlers.PatchCalculation)
 	e.DELETE("/calculations/:id", calcHandlers.DelCalculation)
 
-	e.Start("localhost:8080")
+	e.Start(":8080")
 }
